@@ -1,0 +1,29 @@
+#powershell .ps1 script
+
+Set-Location [source path for where the ps1 file and hashdir/importhceck csv's live]
+do{
+$StartS = (Get-Date).TimeOfDay
+$importfiles = Read-Host -prompt "Path to check"
+$destpath = Read-Host -Prompt "Enter destination filepath"
+Get-ChildItem -path $importfiles -recurse | Get-FileHash -Algorithm MD5 | Export-Csv ImportCheck.csv #hash disc drive
+$hashdir = Import-Csv HashDir.csv #this is the main rolodex of all files and their md5 hashes
+$importcheck = Import-Csv ImportCheck.csv #rotating file of your directory to check
+$duplicates = Compare-Object -ReferenceObject $hashdir -DifferenceObject $importcheck -Property Hash -PassThru -ExcludeDifferent -IncludeEqual #grab duplicates from the to-be-imported file
+$nonduplicates = Compare-Object -ReferenceObject $hashdir -DifferenceObject $importcheck -Property Hash -PassThru | Where-Object {$_.SideIndicator -eq "=>"} #get files that only exist in importcheck.
+If(!$nonduplicates){ #if there's no data that is unique to importcheck, then everything is duplicate and nothing should be copied.
+Write-Host "All duplicate files"
+$EndS = (Get-Date).TimeOfDay
+$duration = $EndS - $StartS
+$duration.ToString('hh\:mm\:ss')+' duplicates' | Out-File -Append scriptRunTimes.csv #write run times to log.
+}else{
+robocopy $importfiles $destpath /E /xf $duplicates #robocopy, exclude duplicates, should keep containers
+Write-Host "Adding files to directory"
+$newhashes = Get-ChildItem -Path $destpath -Recurse | Get-FileHash -Algorithm MD5 #hash newly copied files
+Compare-Object -ReferenceObject $hashdir -DifferenceObject $newhashes -Property Hash -PassThru | where-object {$_.SideIndicator -eq "=>"} | export-csv -append HashDir.csv #add the hashes if they don't already exist
+$EndS = (Get-Date).TimeOfDay
+$duration = $EndS - $StartS
+$duration.ToString('hh\:mm\:ss') | Out-File -Append scriptRunTimes.csv #write run times to log.
+}
+Write-Host "Task Completed in $($EndS - $StartS)"
+$rerun = $Host.UI.PromptForChoice($null, 'Run the script again?', @('&Yes','&No'),0)
+} until ($rerun -ne 0)
